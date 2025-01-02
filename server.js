@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "database.json");
 console.log(`Enjoy the DB file: ${DB_PATH}`)
 // Middleware
@@ -144,6 +144,10 @@ const startServer = () => {
 		console.log(`Server running on http://localhost:${PORT}`);
 	});
 };
+
+if (require.main === module) { // 只在直接运行时启动服务器
+	startServer()
+}
 
 // 导出应用实例和启动函数
 module.exports = {

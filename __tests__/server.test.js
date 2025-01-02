@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 // 临时数据库文件路径
 const TEMP_DB_PATH = path.join(__dirname, 'temp_database.json');
 process.env.DB_PATH = TEMP_DB_PATH;
+process.env.PORT = 5001
 const {
 	app,
 	startServer,
