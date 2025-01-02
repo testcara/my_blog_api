@@ -64,6 +64,24 @@ app.post("/api/login", async (req, res) => {
 
   res.json({ token });
 });
+// 中间件：JWT 认证
+function authenticateJWT(req, res, next) {
+  const token = req.header("Authorization")?.replace("Bearer ", "");
+  if (!token) return res.status(403).send("Access denied");
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).send("Invalid token");
+    req.user = user; // 将用户信息附加到请求对象
+    next();
+  });
+}
+
+// 获取当前用户信息
+app.get("/api/users/me", authenticateJWT, (req, res) => {
+  const user = users.find((u) => u.id === req.user.userId);
+  if (!user) return res.status(404).send("User not found");
+  res.json(user);
+});
 
 // 获取所有帖子
 app.get("/api/posts", (req, res) => {
