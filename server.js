@@ -37,6 +37,7 @@ async function writeDatabase(data) {
 
 // JWT Authentication Middleware
 function authenticateJWT(req, res, next) {
+	console.log("--- verifying token ---")
 	const token = req.header("Authorization")?.replace("Bearer ", "");
 	if (!token) return res.status(403).send("Access denied");
 
@@ -186,8 +187,27 @@ app.put("/api/posts/:id", authenticateJWT, async (req, res) => {
 	}
 });
 
+// Delete post
+app.delete("/api/posts/:id", authenticateJWT, async (req, res) => {
+	try {
+		const db = await readDatabase();
+		const postIndex = db.posts.findIndex((p) => p.id === parseInt(req.params.id));
+
+		if (postIndex === -1) return res.status(404).send("Post not found");
+
+		db.posts = db.posts.filter((p) => p.id !== parseInt(req.params.id))
+		await writeDatabase(db);
+		res.status(200).json(db.posts);
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
+});
+
 // Create new post
 app.post("/api/posts", authenticateJWT, async (req, res) => {
+	console.log('--- create post ---')
 	const {
 		title,
 		summary,
@@ -201,11 +221,11 @@ app.post("/api/posts", authenticateJWT, async (req, res) => {
 			title,
 			summary,
 			content,
-			author_id: req.user.userId,
+			author: req.user.username,
 			createdAt: new Date().toISOString(),
 			updatedAt: new Date().toISOString(),
 		};
-
+		console.log(`test post ${db}`)
 		db.posts.push(newPost);
 		await writeDatabase(db);
 		res.status(201).json(newPost);

@@ -39,7 +39,7 @@ describe('API Server Tests', () => {
 				title: 'test title',
 				summary: 'test summary',
 				content: 'test content',
-				author_id: 1,
+				author: "John Doe",
 				createdAt: '2025-01-03T06:12:28.551Z',
 				updatedAt: '2025-01-03T06:12:28.551Z'
 			}],
@@ -232,6 +232,28 @@ describe('API Server Tests', () => {
 		expect(response1.body).toHaveProperty('title', 'test title2');
 		expect(response1.body).toHaveProperty('summary', 'test summary2');
 		expect(response1.body).toHaveProperty('content', 'test content2');
+	})
+
+	it('should return a 200 status for Delete /api/posts/1', async () => {
+		const userData = {
+			username: 'John Doe',
+			password: 'testpassword',
+		};
+
+		const response = await request(app)
+			.post('/api/login')
+			.send(userData)
+			.set('Content-Type', 'application/json');
+
+		const token = response.body.token
+
+		const response1 = await request(app)
+			.delete('/api/posts/1')
+			.set('Authorization', `Bearer ${token}`)
+			.set('Content-Type', 'application/json')
+
+		expect(response1.status).toBe(200);
+		expect(response1.body.length === 0)
 	})
 
 });
