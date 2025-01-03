@@ -2,154 +2,231 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const fs = require("fs");
+const fs = require("fs").promises; // Use the Promise-based fs module for async operations
 const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "database.json");
-console.log(`Enjoy the DB file: ${DB_PATH}`)
+const JWT_SECRET = process.env.JWT_SECRET || "your-jwt-secret"; // Move to env variable
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// 读取数据库
-function readDatabase() {
+// Utility function to read the database (Async version)
+async function readDatabase() {
 	try {
-		const data = fs.readFileSync(DB_PATH, "utf8");
+		const data = await fs.readFile(DB_PATH, "utf8");
 		return JSON.parse(data);
 	} catch (err) {
 		console.error('Error reading or parsing database.json:', err);
-		throw err;
+		throw new Error("Error reading database");
 	}
 }
 
-// 写入数据库
-function writeDatabase(data) {
-	fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), "utf8");
+// Utility function to write to the database (Async version)
+async function writeDatabase(data) {
+	try {
+		await fs.writeFile(DB_PATH, JSON.stringify(data, null, 2), "utf8");
+	} catch (err) {
+		console.error('Error writing to database.json:', err);
+		throw new Error("Error writing to database");
+	}
 }
 
-// 秘密密钥用于 JWT 签名
-const JWT_SECRET = "123";
-
-// 注册新用户
-app.post("/api/register", async (req, res) => {
-	//console.log('Received request to register...');
-	const {
-		username,
-		password
-	} = req.body;
-	// 检查用户名是否已经存在
-	const db = readDatabase();
-	const existingUser = db.users?.find((u) => u.username === username);
-	if (existingUser) return res.status(400).send("User already exists");
-
-	// 加密密码
-	const newUser = {
-		id: db.users.length + 1,
-		username,
-		password: bcrypt.hashSync(password, 10)
-	};
-	db.users.push(newUser);
-	writeDatabase(db);
-
-	res.status(201).json({
-		message: "User registered successfully"
-	});
-});
-
-// 登录
-app.post("/api/login", async (req, res) => {
-	//console.log('Received request to login...');
-	const {
-		username,
-		password
-	} = req.body;
-	const db = readDatabase();
-	const user = db.users.find((u) => u.username === username);
-	if (!user) return res.status(400).send("Invalid username or password");
-
-	// 检查密码是否匹配
-	const isMatch = await bcrypt.compare(password, user.password);
-	if (!isMatch) return res.status(400).send("Invalid username or password");
-
-	// 创建 JWT
-	const token = jwt.sign({
-			userId: user.id,
-			username: user.username
-		},
-		JWT_SECRET, {
-			expiresIn: "1h", // token 1小时后过期
-		}
-	);
-
-	res.json({
-		token
-	});
-});
-// 中间件：JWT 认证
+// JWT Authentication Middleware
 function authenticateJWT(req, res, next) {
 	const token = req.header("Authorization")?.replace("Bearer ", "");
 	if (!token) return res.status(403).send("Access denied");
 
 	jwt.verify(token, JWT_SECRET, (err, user) => {
 		if (err) return res.status(403).send("Invalid token");
-		req.user = user; // 将用户信息附加到请求对象
+		req.user = user; // Attach user info to the request object
 		next();
 	});
 }
-// 获取当前用户信息
-app.get("/api/users/me", authenticateJWT, (req, res) => {
-	const db = readDatabase()
-	const users = db.users
-	const user = users?.find((u) => u.id === req.user.userId);
-	if (!user) return res.status(404).send("User not found");
-	res.json(user);
+
+// Register new user
+app.post("/api/register", async (req, res) => {
+	const {
+		username,
+		password
+	} = req.body;
+
+	try {
+		const db = await readDatabase();
+		const existingUser = db.users.find((u) => u.username === username);
+		if (existingUser) return res.status(400).json({
+			message: "User already exists!"
+		});
+
+		const hashedPassword = await bcrypt.hash(password, 10);
+		const newUser = {
+			id: db.users.length + 1,
+			username,
+			password: hashedPassword,
+		};
+
+		db.users.push(newUser);
+		await writeDatabase(db);
+
+		res.status(201).json({
+			message: "User registered successfully!"
+		});
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
 });
 
-// 获取所有帖子
-app.get("/api/posts", (req, res) => {
-	res.json(posts);
+// Login user
+app.post("/api/login", async (req, res) => {
+	const {
+		username,
+		password
+	} = req.body;
+
+	try {
+		const db = await readDatabase();
+		const user = db.users.find((u) => u.username === username);
+		if (!user) return res.status(400).send("User does not exist!");
+
+		const isMatch = await bcrypt.compare(password, user.password);
+		if (!isMatch) return res.status(400).send("Invalid username or password");
+
+		const token = jwt.sign({
+			userId: user.id,
+			username: user.username
+		}, JWT_SECRET, {
+			expiresIn: "1h"
+		});
+		res.json({
+			token
+		});
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
 });
 
-// 获取单个帖子
-app.get("/api/posts/:id", (req, res) => {
-	const post = posts.find((p) => p.id === parseInt(req.params.id));
-	if (!post) return res.status(404).send("Post not found");
-	res.json(post);
+// Get current user info
+app.get("/api/users/me", authenticateJWT, async (req, res) => {
+	try {
+		const db = await readDatabase();
+		const user = db.users.find((u) => u.id === req.user.userId);
+		if (!user) return res.status(404).send("User not found");
+
+		res.json(user);
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
 });
 
-// 创建新帖子（需要认证）
-app.post("/api/posts", authenticateJWT, (req, res) => {
+// Get all posts
+app.get("/api/posts", authenticateJWT, async (req, res) => {
+	try {
+		const db = await readDatabase();
+		res.json(db.posts);
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
+});
+
+// Get single post
+app.get("/api/posts/:id", authenticateJWT, async (req, res) => {
+	try {
+		const db = await readDatabase();
+		const post = db.posts.find((p) => p.id === parseInt(req.params.id));
+		if (!post) return res.status(404).send("Post not found");
+
+		res.json(post);
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
+});
+
+// Update post
+app.put("/api/posts/:id", authenticateJWT, async (req, res) => {
 	const {
 		title,
+		summary,
 		content
 	} = req.body;
-	const newPost = {
-		id: posts.length + 1,
-		title,
-		summary,
-		content,
-		author: req.user.username, // 使用请求中的用户名
-		createdAt: new Date().toISOString(),
-		updatedAt: new Date().toISOString(),
-	};
-	posts.push(newPost);
-	res.status(201).json(newPost);
+
+	try {
+		const db = await readDatabase();
+		const postIndex = db.posts.findIndex((p) => p.id === parseInt(req.params.id));
+
+		if (postIndex === -1) return res.status(404).send("Post not found");
+
+		const updatedPost = {
+			...db.posts[postIndex],
+			title,
+			summary,
+			content,
+			updatedAt: new Date().toISOString(),
+		};
+
+		db.posts[postIndex] = updatedPost;
+		await writeDatabase(db);
+		res.status(200).json(updatedPost);
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
 });
 
-// 启动服务器
+// Create new post
+app.post("/api/posts", authenticateJWT, async (req, res) => {
+	const {
+		title,
+		summary,
+		content
+	} = req.body;
+
+	try {
+		const db = await readDatabase();
+		const newPost = {
+			id: db.posts.length + 1,
+			title,
+			summary,
+			content,
+			author_id: req.user.userId,
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		};
+
+		db.posts.push(newPost);
+		await writeDatabase(db);
+		res.status(201).json(newPost);
+	} catch (err) {
+		res.status(500).json({
+			message: "Server error, please try again later."
+		});
+	}
+});
+
+// Start server
 const startServer = () => {
 	return app.listen(PORT, () => {
 		console.log(`Server running on http://localhost:${PORT}`);
 	});
 };
 
-if (require.main === module) { // 只在直接运行时启动服务器
-	startServer()
+if (require.main === module) {
+	startServer();
 }
 
-// 导出应用实例和启动函数
 module.exports = {
 	app,
 	startServer,
